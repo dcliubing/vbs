@@ -1,0 +1,2154 @@
+Dim arrValues As Variant
+Dim arrMergeRows As Variant
+Dim isSaved As Boolean
+Dim savedRows As Long
+Dim savedCols As Long
+ Dim newname, shn, newname2, activ, tmpstr As String
+ Dim arr33, arr44, arr55, arr66 As Variant
+ Dim arr77(1 To 10)
+ Dim senu, toi As Integer
+ Dim arr100(0 To 100)
+ Sub 电缆统计()
+    Dim dict As Object ' 定义一个字典对象，用于去重
+    Set dict = CreateObject("Scripting.Dictionary") ' 创建字典对象
+
+    ' 获取最大行数
+    Dim maxRow As Long
+    maxRow = Cells(Rows.Count, 1).End(xlUp).Row
+
+    ' 遍历 A 列和 B 列的所有行
+    For i = 1 To maxRow
+        ' 获取 A 列第 i 行的单元格值
+        Dim aValue As String
+        aValue = Cells(i, 1).value
+
+        ' 如果 A 列第 i 行的单元格非空，则将其加入字典
+        If aValue <> "" Then
+            If dict.Exists(aValue) Then
+                ' 如果 A 列第 i 行的单元格值已存在于字典中，则累加 B 列第 i 行的单元格值
+                dict(aValue) = dict(aValue) + Cells(i, 2).value
+            Else
+                ' 如果 A 列第 i 行的单元格值不存在于字典中，则将其加入字典
+                dict(aValue) = Cells(i, 2).value
+            End If
+        End If
+    Next i
+
+    ' 将字典中的值写入 C 列和 D 列
+    Dim j As Integer
+    j = 1
+    For Each key In dict.Keys
+        Cells(j, 3).value = key
+        Cells(j, 4).value = dict(key)
+        j = j + 1
+    Next key
+End Sub
+' 模块级变量声明
+Dim isDataStored As Boolean ' 标记是否已存储数据
+Dim storedData As Variant ' 存储的数据数组
+Dim storedMergeInfo As Object ' 存储合并单元格信息
+Dim sourceRangeAddress As String ' 存储源区域地址
+Dim sourceRows As Long, sourceCols As Long ' 存储源区域行列数
+
+Sub 多行列墙贴_改进版()
+Application.ScreenUpdating = False
+    Dim sel As Range
+    Set sel = Selection
+
+    ' 第一次运行：保存数据
+    If Not isSaved Then
+        If sel.Cells.Count = 1 And IsEmpty(sel.value) Then
+            MsgBox "请先选择一块包含内容的区域。", vbExclamation
+            Exit Sub
+        End If
+
+        savedRows = sel.Rows.Count
+        savedCols = sel.Columns.Count
+
+        ReDim arrValues(1 To savedRows, 1 To savedCols)
+        ReDim arrMergeRows(1 To savedRows, 1 To savedCols)
+
+        Dim r As Long, c As Long
+        For r = 1 To savedRows
+            For c = 1 To savedCols
+                With sel.Cells(r, c)
+                    arrValues(r, c) = .value
+                    arrMergeRows(r, c) = .MergeArea.Rows.Count
+                End With
+            Next c
+        Next r
+
+        isSaved = True
+        MsgBox "数据已保存，请选择粘贴起始单元格并再次运行以粘贴。", vbInformation
+        Exit Sub
+    End If
+
+    ' 第二次运行：恢复数据到从左上角开始的位置
+    If sel.Cells.Count <> 1 Then
+        MsgBox "请只选择一个左上角单元格作为粘贴起点。", vbExclamation
+        Exit Sub
+    End If
+
+    Dim startRow As Long, startCol As Long
+    startRow = sel.Row
+    startCol = sel.Column
+
+    Dim pasteRow As Long, pasteCol As Long
+
+    Dim mergeHeight As Long
+
+    For c = 1 To savedCols
+        pasteRow = startRow
+        pasteCol = startCol + c - 1
+
+        For r = 1 To savedRows
+            mergeHeight = arrMergeRows(r, c)
+            With Cells(pasteRow, pasteCol)
+                .value = arrValues(r, c)
+                If mergeHeight > 1 Then
+                    Range(.Cells(1, 1), .Offset(mergeHeight - 1, 0)).Merge
+                End If
+            End With
+            pasteRow = pasteRow + mergeHeight
+        Next r
+    Next c
+
+    MsgBox "数据粘贴完成。", vbInformation
+
+    ' 清除缓存
+    Erase arrValues
+    Erase arrMergeRows
+    isSaved = False
+
+    Application.ScreenUpdating = True
+End Sub
+
+Private Sub ExtractData(rng As Range)
+    ' 存储原始数据
+    storedData = rng.value
+    sourceRangeAddress = rng.Address(False, False)
+    sourceRows = rng.Rows.Count
+    sourceCols = rng.Columns.Count
+    
+    ' 初始化合并信息字典
+    Set storedMergeInfo = CreateObject("Scripting.Dictionary")
+    
+    ' 记录合并单元格信息
+    Dim cell As Range, area As Range
+    Dim i As Long, j As Long
+    Dim key As String
+    
+    For i = 1 To rng.Rows.Count
+        For j = 1 To rng.Columns.Count
+            Set cell = rng.Cells(i, j)
+            If cell.MergeCells Then
+                Set area = cell.MergeArea
+                key = i & "|" & j
+                
+                ' 只存储合并区域的左上角信息
+                If cell.Address = area.Cells(1).Address Then
+                    storedMergeInfo.Add key, Array(area.Rows.Count, area.Columns.Count)
+                End If
+            End If
+        Next j
+    Next i
+End Sub
+
+Private Sub PasteData(startCell As Range)
+    Application.DisplayAlerts = False ' 禁用合并警告
+    
+    ' 计算目标区域
+    Dim targetRange As Range
+    Set targetRange = startCell.Resize(sourceRows, sourceCols)
+    
+    ' 先取消目标区域所有合并
+    targetRange.UnMerge
+    
+    ' 恢复数据
+    Dim i As Long, j As Long
+    Dim key As String
+    Dim mergeInfo As Variant
+    Dim destCell As Range
+    
+    For i = 1 To sourceRows
+        For j = 1 To sourceCols
+            key = i & "|" & j
+            Set destCell = startCell.Offset(i - 1, j - 1)
+            destCell.value = storedData(i, j)
+            
+            ' 恢复合并状态
+            If storedMergeInfo.Exists(key) Then
+                mergeInfo = storedMergeInfo(key)
+                destCell.Resize(mergeInfo(0), mergeInfo(1)).Merge
+            End If
+        Next j
+    Next i
+    
+    Application.DisplayAlerts = True
+End Sub
+Sub 添加文本后缀()
+    Dim cell As Range
+    Dim userInput As String
+
+    ' 获取用户输入的内容
+    userInput = InputBox("请输入要添加到单元格末尾的文字：", "添加文字")
+
+    ' 如果用户点击取消或输入为空，则退出
+    If userInput = "" Then
+        MsgBox "未输入任何内容，操作已取消。", vbExclamation
+        Exit Sub
+    End If
+
+    ' 判断是否选中了单元格区域
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "请选择要处理的单元格区域。", vbExclamation
+        Exit Sub
+    End If
+
+    ' 遍历每个选中单元格
+    For Each cell In Selection
+        If Not IsEmpty(cell.value) Then
+            cell.value = cell.value & userInput
+        End If
+    Next cell
+
+   ' MsgBox "已成功添加：" & userInput, vbInformation
+End Sub
+Sub 添加文本前缀()
+    Dim cell As Range
+    Dim userInput As String
+
+    ' 获取用户输入的内容
+    userInput = InputBox("请输入要添加到单元格末尾的文字：", "添加文字")
+
+    ' 如果用户点击取消或输入为空，则退出
+    If userInput = "" Then
+        MsgBox "未输入任何内容，操作已取消。", vbExclamation
+        Exit Sub
+    End If
+
+    ' 判断是否选中了单元格区域
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "请选择要处理的单元格区域。", vbExclamation
+        Exit Sub
+    End If
+
+    ' 遍历每个选中单元格
+    For Each cell In Selection
+        If Not IsEmpty(cell.value) Then
+            cell.value = userInput & cell.value
+        End If
+    Next cell
+
+   ' MsgBox "已成功添加：" & userInput, vbInformation
+End Sub
+Sub SplitCellContent分隔图纸目录()
+
+ Dim cell As Range
+    Dim parts() As String
+    
+    ' Check if the selection is either a single cell or a multi-row single-column range
+    If Selection.Columns.Count > 1 Or Selection.Rows.Count = Application.Rows.Count Then
+        MsgBox "请选择多行单列或单个单元格。", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Loop through each selected cell
+    For Each cell In Selection
+        ' Check if the cell is not empty
+        If Not IsEmpty(cell.value) Then
+            ' Check if the cell contains a space
+            If InStr(cell.value, " ") > 0 Then
+                ' Split the cell content by the first space
+                parts = Split(cell.value, " ", 2)
+                
+                ' Write the first part to the cell in the next column
+                cell.Offset(0, 1).value = parts(0)
+                
+                ' If there is a second part, write it to the cell two columns to the right
+                If UBound(parts) > 0 Then
+                    cell.Offset(0, 2).value = parts(1)
+                End If
+            Else
+                ' If no space is found, copy the entire content to the next column
+                cell.Offset(0, 1).value = cell.value
+            End If
+        End If
+    Next cell
+
+End Sub
+
+Sub CopyDataToSelectedCell333()
+    Dim startCell As Range
+    Dim endCell As Range
+    Dim startSheetIndex As Integer
+    Dim dataArray() As Variant
+    Dim selectedCell As Range
+    Dim i As Integer
+    Dim ws As Worksheet
+    Dim currentSheet As Worksheet
+
+    On Error Resume Next
+
+    Application.DisplayAlerts = False ' 关闭警告消息框
+    Set currentSheet = ActiveSheet
+    For Each sh In Worksheets
+        sh.Select
+        If sh.Visible = xlSheetHidden Then
+            sh.Visible = xlSheetVisible
+            sh.Delete
+        End If
+    Next
+    Application.DisplayAlerts = True ' 恢复警告消息框
+
+    currentSheet.Activate
+
+    ' 选择第一个单元格
+    On Error Resume Next
+    Set startCell = Application.InputBox("请选择要复制数据的起始单元格:", Type:=8)
+    On Error GoTo 0
+
+    If startCell Is Nothing Then
+        Exit Sub
+    End If
+
+    ' 选择第二个单元格
+    On Error Resume Next
+    Set endCell = Application.InputBox("请选择要粘贴数据的起始单元格:", Type:=8)
+    On Error GoTo 0
+
+    If endCell Is Nothing Then
+        Exit Sub
+    End If
+
+    ' 输入要开始的工作表编号，默认值是当前工作表索引
+    startSheetIndex = InputBox("请输入要开始的工作表编号:", "工作表编号", currentSheet.Index)
+
+    ' 防止无效的工作表编号
+    If startSheetIndex < 1 Or startSheetIndex > Sheets.Count Then
+        MsgBox "无效的工作表编号!"
+        Exit Sub
+    End If
+
+    ' 将数据存储到数组中
+    ReDim dataArray(1 To Sheets.Count - startSheetIndex + 1)
+
+    For i = startSheetIndex To Sheets.Count
+        dataArray(i - startSheetIndex + 1) = Sheets(i).Cells(startCell.Row, startCell.Column).value
+    Next i
+
+    ' 写入数据到目标单元格列
+    Set selectedCell = endCell
+    For i = LBound(dataArray) To UBound(dataArray)
+        selectedCell.value = dataArray(i)
+        Set selectedCell = selectedCell.Offset(1, 0)
+    Next i
+
+End Sub
+
+
+
+
+Sub CopyDataToFirstSheet()
+    Dim ws As Worksheet
+    Dim firstSheet As Worksheet
+    Dim rowToPaste As Long
+    Dim colToPaste As Long
+    Dim cellValue As Variant
+    
+    ' 设置第一个工作表作为目标工作表
+    Set firstSheet = ActiveWorkbook.Sheets(1)
+    
+    ' 初始化写入数据的行和列
+    rowToPaste = 3
+    colToPaste = 20
+    
+    ' 循环遍历每个工作表
+    For Each ws In ActiveWorkbook.Worksheets
+        ' 跳过第一个工作表（目标工作表）
+     
+            ' 获取当前工作表第3行第8列单元格的值
+            cellValue = ws.Cells(3, 8).value
+            
+            ' 将单元格的值写入目标工作表的指定位置
+            firstSheet.Cells(rowToPaste, colToPaste).value = cellValue
+            
+            ' 增加写入行数
+            rowToPaste = rowToPaste + 1
+   
+    Next ws
+End Sub
+
+Sub Fill1IfMatch()
+    Dim lastRow As Long
+    Dim i As Long, j As Long
+    Dim ws As Worksheet
+    Dim matchRange As Range
+    
+    '设置工作表和搜索范围
+    Set ws = ActiveSheet
+    lastRow = ws.Cells(ws.Rows.Count, "P").End(xlUp).Row
+    Set matchRange = ws.Range("F2:J2")
+    
+    '循环遍历每一行，如果P列有数据，就检查是否匹配
+    For i = 2 To lastRow
+        If ws.Cells(i, "P").value <> "" Then '如果P列有数据
+            For j = 1 To 5 '遍历搜索范围
+                If ws.Cells(i, "P").value = matchRange.Cells(1, j).value Then '如果匹配
+                    ws.Cells(i, matchRange.Cells(1, j).Column).value = 1 '在相同数据所在列对应的当前行单元格内填充数字1
+                    Exit For '找到一次匹配就退出循环
+                End If
+            Next j
+        End If
+    Next i
+End Sub
+Sub CompareData()
+    Dim lastRow As Long
+    Dim i As Long, j As Long, k As Long
+    Dim uData As String, bData As String, vData As String
+    
+    lastRow = ActiveSheet.Cells(Rows.Count, "U").End(xlUp).Row
+    
+    For i = 2 To lastRow
+        If Not IsEmpty(Range("U" & i)) Then
+            uData = Range("U" & i)
+            vData = Range("V" & i)
+            
+            For j = 2 To lastRow
+                If Not IsEmpty(Range("B" & j)) Then
+                    bData = Range("B" & j)
+                    
+                    If uData = bData Then
+                        For k = 5 To 9
+                            If vData = Range(Cells(2, k), Cells(2, k)).value Then
+                                Range(Cells(j, k), Cells(j, k)).value = Range("X" & i).value
+                            End If
+                        Next k
+                    End If
+                End If
+            Next j
+        End If
+    Next i
+End Sub
+Sub 电缆长度()
+For Each cell In Selection
+
+If cell.value <> "" And InStr(cell.Offset(, -9).value, "-JB") = 0 And InStr(cell.Offset(, -6).value, "-JB") > 0 Then
+
+
+    If InStr(cell.Offset(, -9).value, "-FD") > 0 Or InStr(cell.Offset(, -9).value, "-GD") > 0 Or InStr(cell.Offset(, -9).value, "-HD") > 0 Or InStr(cell.Offset(, -9).value, "-TD") > 0 Or InStr(cell.Offset(, -9).value, "-MAC") > 0 Then
+
+            cell.value = 50
+            
+            
+            Else
+            
+            
+            cell.value = 35
+
+    
+    End If
+
+
+End If
+
+    Next
+    
+
+
+
+End Sub
+ Sub 安装图材料()
+   Application.ScreenUpdating = False
+    Dim i As Long, j As Long
+    Dim ws As Worksheet
+    Dim k As Long
+
+    Set ws = ActiveSheet ' 当前工作表
+    k = 1
+
+    For i = 1 To Cells(Rows.Count, 2).End(xlUp).Row
+    
+        For j = 1 To Cells(Rows.Count, 10).End(xlUp).Row
+      
+            If ws.Cells(j, 10) = ws.Cells(i, 2) Then
+               
+                ws.Cells(k, 15).value = ws.Cells(i, 1).value
+                ws.Cells(k, 16).value = ws.Cells(j, 3).value
+                ws.Cells(k, 17).value = ws.Cells(j, 4).value
+                ws.Cells(k, 18).value = ws.Cells(j, 5).value
+                ws.Cells(k, 19).value = ws.Cells(j, 6).value
+                ws.Cells(k, 20).value = ws.Cells(j, 7).value
+                ws.Cells(k, 21).value = ws.Cells(j, 8).value
+                ws.Cells(k, 22).value = ws.Cells(j, 9).value
+                ws.Cells(k, 23).value = ws.Cells(j, 10).value
+                k = k + 1
+            End If
+        Next j
+    Next i
+    Application.ScreenUpdating = True
+End Sub
+Sub 选定区域去重()
+    ' 定义变量
+    On Error Resume Next
+    Dim dataRange As Range   ' 选定区域
+    Dim dataArray() As Variant   ' 数据数组
+    Dim dataDict As Object   ' 数据字典
+    Dim dataValue As Variant   ' 数据项
+    Dim targetCell As Range   ' 目标单元格
+
+    ' 获取选定区域
+    Set dataRange = Application.Selection
+
+    ' 检查是否选择了无效的区域
+    If dataRange.Columns.Count = 1 And dataRange.Rows.Count = 1 Then
+        MsgBox "请选择多行单列或多个单元格区域。", vbExclamation
+        Exit Sub
+    ElseIf dataRange.Rows.Count = Application.Rows.Count Or dataRange.Columns.Count = Application.Columns.Count Then
+        MsgBox "请选择适当区域，不要选择整行或整列。", vbExclamation
+        Exit Sub
+    ElseIf dataRange.Rows.Count = Application.Rows.Count And dataRange.Columns.Count > 1 Then
+        MsgBox "请选择适当区域，不要选择多个整列。", vbExclamation
+        Exit Sub
+    ElseIf dataRange.Columns.Count = Application.Columns.Count And dataRange.Rows.Count > 1 Then
+        MsgBox "请选择适当区域，不要选择多个整行。", vbExclamation
+        Exit Sub
+    End If
+
+    ' 读取选定区域的数据
+    dataArray = dataRange.value
+
+    ' 创建数据字典
+    Set dataDict = CreateObject("Scripting.Dictionary")
+
+    ' 将数据数组中的每一个数据项作为键值对存储到字典中
+    For Each dataValue In dataArray
+        If Not IsEmpty(dataValue) Then
+            dataDict(dataValue) = True
+        End If
+    Next dataValue
+
+    ' 获取目标单元格
+    Set targetCell = Application.InputBox("选择一个单元格作为输出位置：", "输出位置", Type:=8)
+
+    ' 将字典中的键值列表写入目标单元格
+    targetCell.Resize(dataDict.Count, 1).value = Application.Transpose(dataDict.Keys)
+End Sub
+
+
+Sub 去重统计()
+    Dim dict As Object ' 定义一个字典对象，用于去重
+    Set dict = CreateObject("Scripting.Dictionary") ' 创建字典对象
+
+    ' 获取最大行数
+    Dim maxRow As Long
+    maxRow = Cells(Rows.Count, 1).End(xlUp).Row
+
+    ' 遍历 A 列和 B 列的所有行
+    For i = 1 To maxRow
+        ' 获取 A 列第 i 行的单元格值
+        Dim aValue As String
+        aValue = Cells(i, 1).value
+
+        ' 如果 A 列第 i 行的单元格非空，则将其加入字典
+        If aValue <> "" Then
+            If dict.Exists(aValue) Then
+                ' 如果 A 列第 i 行的单元格值已存在于字典中，则累加 B 列第 i 行的单元格值
+                dict(aValue) = dict(aValue) + Cells(i, 2).value
+            Else
+                ' 如果 A 列第 i 行的单元格值不存在于字典中，则将其加入字典
+                dict(aValue) = Cells(i, 2).value
+            End If
+        End If
+    Next i
+
+    ' 将字典中的值写入 C 列和 D 列
+    Dim j As Integer
+    j = 1
+    For Each key In dict.Keys
+        Cells(j, 3).value = key
+        Cells(j, 4).value = dict(key)
+        j = j + 1
+    Next key
+End Sub
+
+Sub 重复查询()
+ Dim rng As Range
+    Dim cell As Range
+    Dim dict As Object
+    Dim areaRange As Range
+    Dim rowMin As Long, rowMax As Long
+    Dim colMin As Long, colMax As Long
+    Dim val As String
+    Dim ws As Worksheet
+    Dim totalRows As Long, totalCols As Long
+
+    On Error Resume Next
+    Set rng = Application.Selection
+    On Error GoTo 0
+
+    If rng Is Nothing Then
+        MsgBox "请先选择一个区域。", vbExclamation
+        Exit Sub
+    End If
+
+    Set ws = rng.Worksheet
+    totalRows = ws.Rows.Count
+    totalCols = ws.Columns.Count
+
+    ' 如果用户选中整个工作表，则退出
+    If rng.Rows.Count = totalRows And rng.Columns.Count = totalCols Then
+        MsgBox "不能选择整个工作表，请只选择要检查的区域。", vbCritical
+        Exit Sub
+    End If
+
+    ' 处理整行/整列选择问题，限定在有实际内容的最大范围
+    rowMin = totalRows
+    rowMax = 1
+    colMin = totalCols
+    colMax = 1
+
+    For Each cell In rng
+        If Not IsEmpty(cell.value) Then
+            If cell.Row < rowMin Then rowMin = cell.Row
+            If cell.Row > rowMax Then rowMax = cell.Row
+            If cell.Column < colMin Then colMin = cell.Column
+            If cell.Column > colMax Then colMax = cell.Column
+        End If
+    Next cell
+
+    If rowMax < rowMin Or colMax < colMin Then
+        MsgBox "所选区域无有效内容。", vbExclamation
+        Exit Sub
+    End If
+
+    Set areaRange = ws.Range(ws.Cells(rowMin, colMin), ws.Cells(rowMax, colMax))
+
+    ' 用于判断重复值
+    Set dict = CreateObject("Scripting.Dictionary")
+
+    ' 第一次遍历：记录出现次数
+    For Each cell In areaRange
+        If Not IsEmpty(cell.value) Then
+            val = Trim(CStr(cell.value))
+            If dict.Exists(val) Then
+                dict(val) = dict(val) + 1
+            Else
+                dict.Add val, 1
+            End If
+        End If
+    Next cell
+
+    ' 第二次遍历：标记重复项
+    For Each cell In areaRange
+        If Not IsEmpty(cell.value) Then
+            val = Trim(CStr(cell.value))
+            If dict(val) > 1 Then
+                cell.Interior.Color = RGB(150, 75, 0) ' 棕色
+            Else
+                cell.Interior.ColorIndex = xlNone ' 可选：清除非重复项颜色
+            End If
+        End If
+    Next cell
+
+    MsgBox "重复内容已用棕色标记！", vbInformation
+End Sub
+
+
+Sub 数据去重()
+  Dim arr, brr, a%, b%, Str1, Str2
+   Dim Dic As Object
+  Set Dic = CreateObject("scripting.dictionary")
+  Set Str1 = Application.InputBox("请选择要去重的数据区域", "选择数据", , , , , , 8)
+  arr = Range(Str1.Address)
+  If Not IsArray(arr) Then Exit Sub  '如果不存在数据源选项，则arr非数组，那么退出程序
+  For a = 1 To UBound(arr, 1)
+       For b = 1 To UBound(arr, 2)
+             If arr(a, b) <> "" Then
+             Dic(arr(a, b)) = "" '单元格非空，则装入字典
+             End If
+             Next
+ Next
+  brr = Dic.Keys
+  Set Str2 = Application.InputBox("请确定数据存放的单元格", "选择数据存放的单元格", , , , , , 8)
+ Range(Str2.Address).Resize(Dic.Count, 1) = Application.Transpose(brr)
+  Set Dic = Nothing  '释放字典内存
+End Sub
+Sub qc()
+Dim Dic, arr
+Dim i As Integer, r As Integer
+Dim Str As String
+r = ActiveSheet.Range("A65536").End(xlUp).Row
+If r = 1 Then Exit Sub '如果第一列没有数据那么退出程序
+Set Dic = CreateObject("scripting.dictionary") '创建字典对象
+For i = 1 To r '将第一列数据添加到字典的key值中
+Dic(CStr(Cells(i, 1))) = ""
+Next
+arr = Dic.Keys '返回字典key的数组
+Set Dic = Nothing '销毁对象
+ActiveCell.Resize(UBound(arr) + 1, 1) = Application.Transpose(arr)
+Str = Join(arr, ",") '将数组中的内容显示为一字符串
+
+End Sub
+Sub CheckDuplicates()
+    Dim lastRow As Long
+    Dim i As Long
+    Dim j As Long
+    Dim value As String
+
+    '获取电子表格中的最后一行
+    lastRow = ActiveSheet.Cells(Rows.Count, 1).End(xlUp).Row
+
+    '循环遍历每一行
+    For i = 1 To lastRow
+        '获取当前行的值
+        value = ActiveSheet.Cells(i, 1).value
+
+        '循环遍历剩余的行
+        For j = i + 1 To lastRow
+            '如果找到重复的值，则高亮显示
+            If ActiveSheet.Cells(j, 1).value = value Then
+                ActiveSheet.Cells(j, 1).Interior.Color = vbRed
+            End If
+        Next j
+    Next i
+End Sub
+
+
+
+Sub Mydistinct()
+
+'vba编程学习与实践~看见星光
+
+Dim d As Object, arr, brr, i&, k&, s$
+
+Set d = CreateObject("ing.dictionary")
+
+'后期引用字典
+
+'d.CompareMode = vbTextCompare
+
+'不区分字母大小写
+
+arr = Range("a1:a" & Cells(Rows.Count, 1).End(xlUp).Row)
+
+'数据源装入数组arr
+
+ReDim brr(1 To UBound(arr), 1 To 1)
+
+'声明一个数组brr放结果。
+
+For i = 2 To UBound(arr)
+
+'标题行不要，从第2行开始遍历
+
+s = arr(i, 1)
+
+'强制将数据转换成字符串类型，原因见小贴士
+
+If Not d.Exists(s) Then
+
+d(s) = ""
+
+'如果字典中不存在s，则作为关键字装入字典
+
+k = k + 1
+
+'累加个数
+
+brr(k, 1) = arr(i, 1)
+
+'装入结果数组
+
+End If
+
+Next
+
+[c:c].ClearContents
+
+[c1] = "结果"
+
+With [c2].Resize(k, 1)
+
+.NumberFormat = "@"
+
+'设置文本格式，防止某些文本数值变形
+
+.value = brr
+
+End With
+
+MsgBox "一共为你提取了：" & k & "个不重复值。"
+
+Set d = Nothing
+
+'释放字典
+
+End Sub
+Sub 电缆外径2()
+Application.ScreenUpdating = False
+Dim arr1, arr2, arr3
+    arr1 = Array("2-AON-1x2x1.5mm2", "2-AON-1x2x2.5mm2", "2-AIN-2x2x1.5mm2", "2-AIN-2x2x2.5mm2", "1-AIN-5x2x1.5mm2", "1-AIN-10x2x1.5mm2", "1-AIN-15x2x1.5mm2", "1-AIN-20x2x1.5mm2", "1-AIN-5x2x2.5mm2", "1-AIN-10x2x2.5mm2", "1-AIN-15x2x2.5mm2", "2-BON-1x2x1.5mm2", "2-BON-1x2x2.5mm2", "2-BON-1x3x1.5mm2", "2-BON-1x3x1.5mm2（防水）", "2-BIN-2x2x1.5mm2", "2-BIN-2x2x2.5mm2", "1-BIN-5x2x1.5mm2", "1-BIN-10x2x1.5mm2", "1-BIN-15x2x1.5mm2", "1-BIN-5x2x2.5mm2", "1-BIN-10x2x2.5mm2", "1-BIN-15x2x2.5mm2", "1-BIN-5x3x1.5mm2", "1-BIN-10x3x1.5mm2", "2-AIN-2x2x1.5mm2")
+    arr2 = Array("13.7mm", "14.5mm", "20.8mm", "22.2mm", "19.4mm", "27.2mm", "31.6mm", "35.4mm", "21.5mm", "30.4mm", "35.1mm", "15.4mm", "16.4mm", "16mm", "16.4mm", "23.4mm", "25.2mm", "22.9mm", "32.6mm", "37.7mm", "25.5mm", "36.4mm", "42.1mm", "26.4mm", "38mm", "22mm")
+    arr3 = Array("1/2" & """ NPTM", "1/2" & """ NPTM", "3/4" & """ NPTM", "3/4" & """ NPTM", "1" & """ NPTM", "1-1/2" & """ NPTM", "1-1/2" & """ NPTM", "1-1/2" & """ NPTM", "1" & """ NPTM", "1-1/2" & """ NPTM", "1-1/2" & """ NPTM", "1/2" & """ NPTM", "1/2" & """ NPTM", "3/4" & """ NPTM", "3/4" & """ NPTM", "3/4" & """ NPTM", "3/4" & """ NPTM", "1" & """ NPTM", "1-1/2" & """ NPTM", "1-1/2" & """ NPTM", "1-1/2" & """ NPTM", "1-1/2" & """ NPTM", "2" & """ NPTM", "1" & """ NPTM", "1-1/2" & """ NPTM", "3/4" & """ NPTM")
+  
+For i = 1 To 1000
+
+    For j = 0 To 25
+        
+       If ActiveSheet.Cells(i, 1).value = arr1(j) Then
+         
+            ActiveSheet.Cells(i, 2).value = arr2(j)
+            ActiveSheet.Cells(i, 3).value = arr3(j)
+         
+       End If
+    Next j
+
+Next i
+
+Application.ScreenUpdating = True
+
+Set arr1 = Nothing
+
+Set arr2 = Nothing
+
+Set arr3 = Nothing
+
+
+End Sub
+Sub 火气坐标()
+'
+' 宏3 宏
+'
+Application.ScreenUpdating = False
+ myarray = Range("A1:F608").value
+
+
+
+
+
+For i = LBound(myarray, 1) To UBound(myarray, 1)
+    For j = LBound(myarray, 2) To UBound(myarray, 2)
+        If j = 1 Then
+            ' 访问 myArray(i, j) 即可访问第二列的元素
+            
+            
+                          For Each cell In Selection
+                                 
+                            
+                                     If cell.value = myarray(i, j) Then
+                             
+                                          cell.Offset(, 1).value = myarray(i, j + 1)
+                                          cell.Offset(, 2).value = myarray(i, j + 2)
+                                          cell.Offset(, 3).value = myarray(i, j + 3)
+                                          cell.Offset(, 4).value = myarray(i, j + 4)
+                                          cell.Offset(, 5).value = myarray(i, j + 5)
+                                
+                             
+                                       End If
+                                 
+                    
+                                Next cell
+                                
+            
+            
+
+        End If
+    Next j
+Next i
+
+Application.ScreenUpdating = True
+'
+End Sub
+Sub 电缆外径()
+Application.ScreenUpdating = False
+Dim arr1, arr2, arr3
+Dim i As Range
+Dim regex As Object
+    Dim matches As Object
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.Pattern = "[-](\d+)[x]"
+    regex.Global = True
+
+    
+    
+    arr1 = Array("2-AON-1x2x1.5mm2", "2-AON-1x2x2.5mm2", "2-AIN-2x2x1.5mm2", "2-AIN-2x2x2.5mm2", "1-AIN-5x2x1.5mm2", "1-AIN-10x2x1.5mm2", "1-AIN-15x2x1.5mm2", "1-AIN-20x2x1.5mm2", "1-AIN-5x2x2.5mm2", "1-AIN-10x2x2.5mm2", "1-AIN-15x2x2.5mm2", "2-BON-1x2x1.5mm2", "2-BON-1x2x2.5mm2", "2-BON-1x3x1.5mm2", "2-BON-1x3x1.5mm2（防水）", "2-BIN-2x2x1.5mm2", "2-BIN-2x2x2.5mm2", "1-BIN-5x2x1.5mm2", "1-BIN-10x2x1.5mm2", "1-BIN-15x2x1.5mm2", "1-BIN-5x2x2.5mm2", "1-BIN-10x2x2.5mm2", "1-BIN-15x2x2.5mm2", "1-BIN-5x3x1.5mm2", "1-BIN-10x3x1.5mm2")
+    arr2 = Array("13.7mm", "14.5mm", "20.8mm", "22.2mm", "19.4mm", "27.2mm", "31.6mm", "35.4mm", "21.5mm", "30.4mm", "35.1mm", "15.4mm", "16.4mm", "16mm", "16.4mm", "23.4mm", "25.2mm", "22.9mm", "32.6mm", "37.7mm", "25.5mm", "36.4mm", "42.1mm", "26.4mm", "38mm")
+    arr3 = Array("1/2" & """ NPT", "1/2" & """ NPT", "3/4" & """ NPT", "3/4" & """ NPT", "1" & """ NPT", "1-1/2" & """ NPT", "1-1/2" & """ NPT", "1-1/2" & """ NPT", "1" & """ NPT", "1-1/2" & """ NPT", "1-1/2" & """ NPT", "1/2" & """ NPT", "1/2" & """ NPT", "3/4" & """ NPT", "3/4" & """ NPT", "3/4" & """ NPT", "3/4" & """ NPT", "1" & """ NPT", "1-1/2" & """ NPT", "1-1/2" & """ NPT", "1-1/2" & """ NPT", "1-1/2" & """ NPT", "2" & """ NPT", "1" & """ NPT", "1-1/2" & """ NPT", "3/4" & """ NPT")
+  
+For Each cell In Selection
+    For j = 0 To 24
+        
+       If cell.value = arr1(j) Then
+         
+           cell.Offset(, 5).value = arr2(j)
+           cell.Offset(, -1).value = arr3(j)
+           
+            cell.Offset(, 2).value = Right(cell.value, 6)
+           cell.Offset(, -3).value = arr3(j)
+             
+                                    If cell.value <> "" Then
+                                                    If InStr(cell.value, "2.5mm") > 0 Or InStr(cell.value, "1x2x") > 0 Or InStr(cell.value, "1x3x") > 0 Then
+                                                                  cell.Offset(, 3).value = "OVERALL"
+                                                                   Else
+                                                                cell.Offset(, 3).value = "OVERALL,INDIVIDUAL"
+                                                     End If
+                                     End If
+                                        If cell.value <> "" Then
+                                           
+                                                            If regex.test(cell.value) Then
+                                                                
+                                                                Set matches = regex.Execute(cell.value)
+                                                                
+                                                                
+                                                                  If InStr(cell.value, "x2x") > 0 Then
+                                                                  
+                                                                cell.Offset(0, 1).value = matches(0).SubMatches(0) & "PR"
+                                                                
+                                                                
+                                                                ElseIf InStr(cell.value, "x3x") > 0 Then
+                                                                
+                                                                cell.Offset(0, 1).value = matches(0).SubMatches(0) & "TR"
+                                                                
+                                                                ElseIf InStr(cell.value, "x2.5mm") > 0 Then
+                                                                
+                                                                cell.Offset(0, 1).value = matches(0).SubMatches(0) & "C"
+                                                                End If
+                                                            End If
+                                        End If
+                                     
+                                     
+                                     
+                                     
+                                     
+      
+                                     
+                                     
+                                     
+                                     
+                                     
+                                     
+       End If
+
+       
+       
+       
+    Next j
+
+Next cell
+
+Application.ScreenUpdating = True
+
+Set arr1 = Nothing
+
+Set arr2 = Nothing
+
+Set arr3 = Nothing
+
+
+End Sub
+Sub 电缆表()
+Application.ScreenUpdating = False
+With ActiveSheet
+
+For i = 2 To 100
+If InStr(.Cells(i, 7).value, "15PR") > 0 Then
+
+ .Cells(i, 3).value = "1 1/2""NPT"
+ .Cells(i, 5).value = "1 1/2""NPT"
+ 
+ 
+   .Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+
+If InStr(.Cells(i, 1).value, "A-") > 0 Or InStr(.Cells(i, 1).value, "D-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-15x2x1.5mm2"
+ .Cells(i, 8).value = "1.5mm2"
+ .Cells(i, 11).value = "35.2mm"
+ElseIf InStr(.Cells(i, 1).value, "P-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-15x2x2.5mm2"
+
+ .Cells(i, 8).value = "2.5mm2"
+ .Cells(i, 11).value = ""
+ End If
+
+ 
+ ElseIf InStr(.Cells(i, 7).value, "10PR") > 0 Then
+
+ .Cells(i, 3).value = "1 1/2""NPT"
+ .Cells(i, 5).value = "1 1/2""NPT"
+ 
+ 
+   .Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+
+If InStr(.Cells(i, 1).value, "A-") > 0 Or InStr(.Cells(i, 1).value, "D-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-10x2x1.5mm2"
+ .Cells(i, 8).value = "1.5mm2"
+ .Cells(i, 11).value = "29.8mm"
+ElseIf InStr(.Cells(i, 1).value, "P-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-10x2x2.5mm2"
+
+ .Cells(i, 8).value = "2.5mm2"
+ .Cells(i, 11).value = "36.2mm"
+ End If
+
+ 
+ ElseIf InStr(.Cells(i, 7).value, "5PR") > 0 And InStr(.Cells(i, 7).value, "15PR") = 0 Then
+
+  .Cells(i, 3).value = "1 ""NPT"
+  .Cells(i, 5).value = "1 ""NPT"
+  
+  
+     .Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+
+If InStr(.Cells(i, 1).value, "A-") > 0 Or InStr(.Cells(i, 1).value, "D-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-5x2x1.5mm2"
+ .Cells(i, 8).value = "1.5mm2"
+ .Cells(i, 11).value = "21.3mm"
+ElseIf InStr(.Cells(i, 1).value, "P-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-5x2x2.5mm2"
+
+ .Cells(i, 8).value = "2.5mm2"
+ .Cells(i, 11).value = "25.6mm"
+ End If
+
+  ElseIf InStr(.Cells(i, 7).value, "2PR") > 0 Then
+ .Cells(i, 3).value = "3/4 ""NPT"
+   .Cells(i, 5).value = "3/4 ""NPT"
+   
+   
+        .Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+
+If InStr(.Cells(i, 1).value, "A-") > 0 Or InStr(.Cells(i, 1).value, "D-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-2x2x1.5mm2"
+ .Cells(i, 8).value = "1.5mm2"
+ .Cells(i, 11).value = "22.7mm"
+ElseIf InStr(.Cells(i, 1).value, "P-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-2x2x2.5mm2"
+
+ .Cells(i, 8).value = "2.5mm2"
+ .Cells(i, 11).value = "25.9mm"
+ End If
+
+    ElseIf InStr(.Cells(i, 7).value, "1PR") > 0 Then
+      .Cells(i, 3).value = "1/2 ""NPT"
+.Cells(i, 5).value = "1/2 ""NPT"
+
+
+     .Cells(i, 9).value = "OVERALL"
+
+If InStr(.Cells(i, 1).value, "A-") > 0 Or InStr(.Cells(i, 1).value, "D-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-1x2x1.5mm2"
+ .Cells(i, 8).value = "1.5mm2"
+ .Cells(i, 11).value = "15mm"
+  .Cells(i, 12).value = "10.6mm"
+ElseIf InStr(.Cells(i, 1).value, "P-") > 0 Then
+ .Cells(i, 6).value = "1-AIN-5x2x2.5mm2"
+ .Cells(i, 6).value = "1-AIN-5x2x2.5mm2"
+ .Cells(i, 8).value = "2.5mm2"
+ .Cells(i, 11).value = "16.4mm"
+  .Cells(i, 11).value = "12mm"
+ End If
+ End If
+
+
+
+
+Next i
+
+End With
+Application.ScreenUpdating = True
+End Sub
+Sub 电缆表2()
+Application.ScreenUpdating = False
+For i = 2 To 100
+If InStr(ActiveSheet.Cells(i, 7).value, "15PR") > 0 Then
+
+ ActiveSheet.Cells(i, 3).value = "1 1/2""NPT"
+ ActiveSheet.Cells(i, 5).value = "1 1/2""NPT"
+ 
+ 
+   ActiveSheet.Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+If InStr(ActiveSheet.Cells(i, 4).value, "PCS") > 0 Or InStr(ActiveSheet.Cells(i, 4).value, "DCS") > 0 Then
+If InStr(ActiveSheet.Cells(i, 1).value, "A-") > 0 Or InStr(ActiveSheet.Cells(i, 1).value, "D-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-15x2x1.5mm2"
+ ActiveSheet.Cells(i, 8).value = "1.5mm2"
+ ActiveSheet.Cells(i, 11).value = "35.2mm"
+ElseIf InStr(ActiveSheet.Cells(i, 1).value, "P-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-15x2x2.5mm2"
+
+ ActiveSheet.Cells(i, 8).value = "2.5mm2"
+ ActiveSheet.Cells(i, 11).value = ""
+ End If
+ End If
+ 
+ ElseIf InStr(ActiveSheet.Cells(i, 7).value, "10PR") > 0 Then
+
+ ActiveSheet.Cells(i, 3).value = "1 1/2""NPT"
+ ActiveSheet.Cells(i, 5).value = "1 1/2""NPT"
+ 
+ 
+   ActiveSheet.Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+If InStr(ActiveSheet.Cells(i, 4).value, "PCS") > 0 Or InStr(ActiveSheet.Cells(i, 4).value, "DCS") > 0 Then
+If InStr(ActiveSheet.Cells(i, 1).value, "A-") > 0 Or InStr(ActiveSheet.Cells(i, 1).value, "D-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-10x2x1.5mm2"
+ ActiveSheet.Cells(i, 8).value = "1.5mm2"
+ ActiveSheet.Cells(i, 11).value = "29.8mm"
+ElseIf InStr(ActiveSheet.Cells(i, 1).value, "P-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-10x2x2.5mm2"
+
+ ActiveSheet.Cells(i, 8).value = "2.5mm2"
+ ActiveSheet.Cells(i, 11).value = "36.2mm"
+ End If
+ End If
+ 
+ ElseIf InStr(ActiveSheet.Cells(i, 7).value, "5PR") > 0 And InStr(ActiveSheet.Cells(i, 7).value, "15PR") = 0 Then
+
+  ActiveSheet.Cells(i, 3).value = "1 ""NPT"
+  ActiveSheet.Cells(i, 5).value = "1 ""NPT"
+  
+  
+     ActiveSheet.Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+If InStr(ActiveSheet.Cells(i, 4).value, "PCS") > 0 Or InStr(ActiveSheet.Cells(i, 4).value, "DCS") > 0 Then
+If InStr(ActiveSheet.Cells(i, 1).value, "A-") > 0 Or InStr(ActiveSheet.Cells(i, 1).value, "D-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-5x2x1.5mm2"
+ ActiveSheet.Cells(i, 8).value = "1.5mm2"
+ ActiveSheet.Cells(i, 11).value = "21.3mm"
+ElseIf InStr(ActiveSheet.Cells(i, 1).value, "P-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-5x2x2.5mm2"
+
+ ActiveSheet.Cells(i, 8).value = "2.5mm2"
+ ActiveSheet.Cells(i, 11).value = "25.6mm"
+ End If
+ End If
+  ElseIf InStr(ActiveSheet.Cells(i, 7).value, "2PR") > 0 Then
+ ActiveSheet.Cells(i, 3).value = "3/4 ""NPT"
+   ActiveSheet.Cells(i, 5).value = "3/4 ""NPT"
+   
+   
+        ActiveSheet.Cells(i, 9).value = "OVERALL,INDIVIDUAL"
+If InStr(ActiveSheet.Cells(i, 4).value, "PCS") > 0 Or InStr(ActiveSheet.Cells(i, 4).value, "DCS") > 0 Then
+If InStr(ActiveSheet.Cells(i, 1).value, "A-") > 0 Or InStr(ActiveSheet.Cells(i, 1).value, "D-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-2x2x1.5mm2"
+ ActiveSheet.Cells(i, 8).value = "1.5mm2"
+ ActiveSheet.Cells(i, 11).value = "22.7mm"
+ElseIf InStr(ActiveSheet.Cells(i, 1).value, "P-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-2x2x2.5mm2"
+
+ ActiveSheet.Cells(i, 8).value = "2.5mm2"
+ ActiveSheet.Cells(i, 11).value = "25.9mm"
+ End If
+ End If
+    ElseIf InStr(ActiveSheet.Cells(i, 7).value, "1PR") > 0 Then
+      ActiveSheet.Cells(i, 3).value = "1/2 ""NPT"
+ActiveSheet.Cells(i, 5).value = "1/2 ""NPT"
+
+
+     ActiveSheet.Cells(i, 9).value = "OVERALL"
+If InStr(ActiveSheet.Cells(i, 4).value, "PCS") > 0 Or InStr(ActiveSheet.Cells(i, 4).value, "DCS") > 0 Then
+If InStr(ActiveSheet.Cells(i, 1).value, "A-") > 0 Or InStr(ActiveSheet.Cells(i, 1).value, "D-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-1x2x1.5mm2"
+ ActiveSheet.Cells(i, 8).value = "1.5mm2"
+ ActiveSheet.Cells(i, 11).value = "15mm"
+  ActiveSheet.Cells(i, 12).value = "10.6mm"
+ElseIf InStr(ActiveSheet.Cells(i, 1).value, "P-") > 0 Then
+ ActiveSheet.Cells(i, 6).value = "1-AIN-5x2x2.5mm2"
+ ActiveSheet.Cells(i, 6).value = "1-AIN-5x2x2.5mm2"
+ ActiveSheet.Cells(i, 8).value = "2.5mm2"
+ ActiveSheet.Cells(i, 11).value = "16.4mm"
+  ActiveSheet.Cells(i, 11).value = "12mm"
+ End If
+ End If
+ End If
+
+
+
+Next i
+Application.ScreenUpdating = True
+End Sub
+Sub 分列对比()
+    Dim ws As Worksheet
+    Dim rng As Range
+    Dim col1 As Range, col2 As Range
+    Dim lastRow1 As Long, lastRow2 As Long, lastRow As Long
+    Dim cell As Range
+    Dim dict1 As Object, dict2 As Object
+    Dim selectedAreas As Integer
+    
+    Set ws = ActiveSheet
+    Set rng = Selection
+    
+    ' 检查是否选中了有效的两列（连续或间隔）
+    selectedAreas = rng.Areas.Count
+    
+    ' 情况1：直接框选连续的两列（如A:B）
+    If selectedAreas = 1 Then
+        If rng.Columns.Count <> 2 Then
+            MsgBox "请选择两列数据进行比较！", vbExclamation
+            Exit Sub
+        End If
+        Set col1 = rng.Columns(1)
+        Set col2 = rng.Columns(2)
+    
+    ' 情况2：按住Ctrl键选择间隔的两列（如A列和C列）
+    ElseIf selectedAreas = 2 Then
+        If rng.Areas(1).Columns.Count <> 1 Or rng.Areas(2).Columns.Count <> 1 Then
+            MsgBox "每个选择区域必须是一整列！", vbExclamation
+            Exit Sub
+        End If
+        Set col1 = rng.Areas(1).Columns(1)
+        Set col2 = rng.Areas(2).Columns(1)
+    
+    ' 其他情况：选择无效
+    Else
+        MsgBox "请选择两列数据进行比较（可以框选连续两列或按住Ctrl键选择间隔的两列）！", vbExclamation
+        Exit Sub
+    End If
+    
+    ' 获取最大行数
+    lastRow1 = ws.Cells(ws.Rows.Count, col1.Column).End(xlUp).Row
+    lastRow2 = ws.Cells(ws.Rows.Count, col2.Column).End(xlUp).Row
+    lastRow = IIf(lastRow1 > lastRow2, lastRow1, lastRow2)
+    
+    ' 清除之前的颜色
+    ws.Range(ws.Cells(1, col1.Column), ws.Cells(lastRow, col1.Column)).Interior.ColorIndex = xlNone
+    ws.Range(ws.Cells(1, col2.Column), ws.Cells(lastRow, col2.Column)).Interior.ColorIndex = xlNone
+    
+    ' 创建字典对象
+    Set dict1 = CreateObject("Scripting.Dictionary")
+    Set dict2 = CreateObject("Scripting.Dictionary")
+    
+    ' 收集第一列的所有唯一值
+    For Each cell In ws.Range(ws.Cells(1, col1.Column), ws.Cells(lastRow1, col1.Column))
+        If Not IsEmpty(cell.value) Then
+            dict1(Trim(CStr(cell.value))) = 1
+        End If
+    Next cell
+    
+    ' 收集第二列的所有唯一值
+    For Each cell In ws.Range(ws.Cells(1, col2.Column), ws.Cells(lastRow2, col2.Column))
+        If Not IsEmpty(cell.value) Then
+            dict2(Trim(CStr(cell.value))) = 1
+        End If
+    Next cell
+    
+    ' 检查第二列的每个单元格是否在第一列中存在
+    For Each cell In ws.Range(ws.Cells(1, col2.Column), ws.Cells(lastRow2, col2.Column))
+        If Not IsEmpty(cell.value) Then
+            Dim value As String
+            value = Trim(CStr(cell.value))
+            
+            ' 如果第二列的值不在第一列中，标记为黄色
+            If Not dict1.Exists(value) Then
+                cell.Interior.Color = RGB(255, 255, 0) ' 黄色
+            End If
+        End If
+    Next cell
+    
+    ' 检查第一列的每个单元格是否在第二列中存在
+    For Each cell In ws.Range(ws.Cells(1, col1.Column), ws.Cells(lastRow1, col1.Column))
+        If Not IsEmpty(cell.value) Then
+            value = Trim(CStr(cell.value))
+            
+            ' 如果第一列的值不在第二列中，标记为黄色
+            If Not dict2.Exists(value) Then
+                cell.Interior.Color = RGB(255, 255, 0) ' 黄色
+            End If
+        End If
+    Next cell
+    
+    MsgBox "比较完成，差异项已用黄色标记。" & vbCrLf & _
+           "第一列: " & Split(col1.Address(False, False), ":")(0) & vbCrLf & _
+           "第二列: " & Split(col2.Address(False, False), ":")(0), vbInformation
+End Sub
+
+Sub CompareColumnsAndHighlightDifferentCellsOptimized()
+
+    Application.ScreenUpdating = False
+    
+    Dim ws As Worksheet
+    Dim rng1 As Range, rng2 As Range, combinedRange As Range
+    Dim cell As Range
+    Dim diffCells As Range
+    Dim dict1 As Object, dict2 As Object
+    Dim lastRow1 As Long, lastRow2 As Long, lastRowCombined As Long
+    
+    ' Set the worksheet where the data is located
+    Set ws = ActiveSheet ' Change this to the desired worksheet
+    
+    ' Find the last used row in each column
+    lastRow1 = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    lastRow2 = ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+    
+    ' Determine the maximum number of rows between the two columns
+    lastRowCombined = Application.WorksheetFunction.Max(lastRow1, lastRow2)
+    
+    ' Set the ranges for the two columns to be compared (change the ranges as needed)
+    Set rng1 = ws.Range("A1:A" & lastRowCombined) ' Change this to the first column range
+    Set rng2 = ws.Range("B1:B" & lastRowCombined) ' Change this to the second column range
+    
+    ' Combine the two ranges into a single range
+    Set combinedRange = Union(rng1, rng2)
+    
+    ' Clear any previous highlighting
+    ws.Cells.Interior.ColorIndex = xlNone
+    
+    ' Create dictionaries to store the values in both columns
+    Set dict1 = CreateObject("Scripting.Dictionary")
+    Set dict2 = CreateObject("Scripting.Dictionary")
+    
+    ' Loop through each cell in the combined range and add values to dict1 and dict2
+    For Each cell In combinedRange
+        If cell.Column = 1 Then
+            dict1(cell.value) = 1
+        Else
+            dict2(cell.value) = 1
+        End If
+    Next cell
+    
+    ' Find the unique values in the first column that don't exist in the second column
+    For Each cell In rng1
+        If Not dict2.Exists(cell.value) Then
+            ' Highlight the different cell with yellow color
+            If diffCells Is Nothing Then
+                Set diffCells = cell
+            Else
+                Set diffCells = Union(diffCells, cell)
+            End If
+        End If
+    Next cell
+    
+    ' Find the unique values in the second column that don't exist in the first column
+    For Each cell In rng2
+        If Not dict1.Exists(cell.value) Then
+            ' Highlight the different cell with yellow color
+            If diffCells Is Nothing Then
+                Set diffCells = cell
+            Else
+                Set diffCells = Union(diffCells, cell)
+            End If
+        End If
+    Next cell
+    
+    ' Highlight the different cells with yellow color
+    If Not diffCells Is Nothing Then
+        diffCells.Interior.Color = RGB(255, 255, 0) ' Yellow color
+    Else
+        MsgBox "未发现区别"
+    End If
+    
+    Application.ScreenUpdating = True
+End Sub
+
+
+
+
+
+Sub 多行列墙贴()
+Application.ScreenUpdating = False
+
+'Set arr66 = Nothing
+Dim hang, hangs, colns, colnss, toj, huan, ii, iit, sh, shi, lie, sht, e, f As Integer
+
+Dim arr2 As Variant
+
+Dim sjy, a, b, c, d As String
+
+On Error Resume Next
+hang = Selection.Row
+
+ii = Selection.Column
+iit = Selection.Column
+
+
+colns = ActiveCell.MergeArea.Columns.Count
+
+colnss = Selection.Columns.Count
+sht = 0
+toj = 0
+
+shi = 1
+
+
+
+
+
+
+a = 1
+
+
+
+'MsgBox senu
+'If LBound(arr66) > UBound(arr66) Then   '判断数组是否为空
+If (CStr(Join(arr66, ""))) = "" Then
+
+If Application.CountA(Selection) = 0 Then
+
+
+MsgBox "未选择任何内容"
+Exit Sub
+
+End If
+
+    If Selection.Columns.Count = 1 And Selection.Rows.Count = 1 Then
+        MsgBox "请选择多行多列的区域，不要选择单个单元格。", vbExclamation
+        Exit Sub
+    ElseIf Selection.Rows.Count = Application.Rows.Count Then
+        MsgBox "请选择适当区域，不要选择整行。", vbExclamation
+        Exit Sub
+    ElseIf Selection.Columns.Count = Application.Columns.Count Then
+        MsgBox "请选择适当区域，不要选择整列。", vbExclamation
+        Exit Sub
+    ElseIf Selection.Rows.Count > 1 And Selection.Columns.Count > 1 Then
+        ' Handle multiple rows and columns case
+    Else
+        MsgBox "请选择多行多列的区域。", vbExclamation
+        Exit Sub
+    End If
+toi = 0
+Do
+
+huan = ActiveSheet.Cells(hang, iit).MergeArea.Columns.Count
+
+iit = iit + huan
+
+arr100(toi) = toj + 1
+toj = toj + huan
+toi = toi + 1
+
+
+ Loop Until toj = colnss
+arr55 = Selection
+
+senu = Selection.Rows.Count
+
+
+sh = 0
+
+hangs = hang + senu - 1
+
+
+
+ReDim arr66(0 To hangs)
+
+
+For hang = hang To hangs
+                            
+                            
+                            arr66(sh) = ActiveSheet.Cells(hang, ii)
+                            sh = sh + 1
+                            
+                           
+
+Next hang
+
+
+ReDim Preserve arr66(0 To sh)
+
+
+a = 1
+'arr66 = Selection.Value
+Else
+
+c = MsgBox("是否确定粘贴", vbOKCancel)
+
+
+
+If c = 2 Then
+Set arr66 = Nothing
+
+Exit Sub
+
+End If
+
+hang = Selection.Row
+
+iit = Selection.Column
+
+
+
+
+
+For toi = toi To 1 Step -1
+
+huan = ActiveSheet.Cells(hang, iit).MergeArea.Columns.Count
+
+
+arr3 = WorksheetFunction.Index(arr55, 0, arr100(sht))
+
+
+
+hangchu = hang
+
+bay = senu
+
+
+If senu = 1 Then
+
+ActiveSheet.Cells(hang, iit).value = arr3(1)
+
+Else
+
+For senu = senu To 1 Step -1
+ActiveSheet.Cells(hang, iit).value = arr3(shi, 1)
+shi = shi + 1
+hang = hang + ActiveSheet.Cells(hang, iit).MergeArea.Rows.Count
+
+Next senu
+
+End If
+Set arr3 = Nothing
+shi = 1
+hang = hangchu
+senu = bay
+
+sht = sht + 1
+
+
+
+iit = iit + huan
+
+
+
+
+Next toi
+
+
+
+
+'ActiveSheet.Cells(hang, ii).Resize(UBound(arr66), 1) = Application.Transpose(arr66)
+
+'Selection.Columns(1) = WorksheetFunction.Index(arr55, 0, 1)
+
+Set arr55 = Nothing
+Set arr66 = Nothing
+End If
+'Range("ab1").Resize(UBound(arr)) = arr
+
+End Sub
+Sub 多行列墙贴2()
+    Application.ScreenUpdating = False
+
+    Dim hang As Integer, hangs As Integer, colns As Integer, colnss As Integer
+    Dim toj As Integer, huan As Integer, ii As Integer, iit As Integer
+    Dim sh As Integer, shi As Integer, sht As Integer
+    Dim senu As Integer, toi As Integer, hangchu As Integer, bay As Integer
+    Dim arr100() As Variant, arr55 As Variant, arr66() As Variant
+    Dim arr3 As Variant
+
+    On Error Resume Next
+
+    ' 检查选择区域是否有效
+    If Not IsValidSelection(Selection) Then
+        MsgBox "请选择适当区域，不要选择单个单元格、一整列、一整行或多个整列/整行。", vbExclamation
+        Exit Sub
+    End If
+
+    ' 获取选定区域的属性
+    hang = Selection.Row
+    ii = Selection.Column
+    colnss = Selection.Columns.Count
+    sht = 0
+    toj = 0
+
+    ' 初始化 arr100 数组
+    ReDim arr100(1 To colnss)
+
+    ' 获取每个区域的列数
+    Do
+        huan = ActiveSheet.Cells(hang, ii).MergeArea.Columns.Count
+        arr100(sht + 1) = toj + 1
+        toj = toj + huan
+        sht = sht + 1
+        ii = ii + huan
+    Loop Until toj >= colnss
+
+    ' 存储选择的值
+    arr55 = Selection.value
+    senu = Selection.Rows.Count
+    sh = 0
+    hangs = hang + senu - 1
+    ReDim arr66(0 To senu - 1)
+
+    ' 获取区域内的值
+    For hang = hang To hangs
+        arr66(sh) = ActiveSheet.Cells(hang, Selection.Column)
+        sh = sh + 1
+    Next hang
+
+    ' 确认粘贴操作
+    If MsgBox("是否确定粘贴", vbOKCancel) = vbCancel Then
+        Erase arr66
+        Exit Sub
+    End If
+
+    hang = Selection.Row
+    ii = Selection.Column
+
+    ' 粘贴数据
+    For toi = sht - 1 To 0 Step -1
+        huan = ActiveSheet.Cells(hang, ii).MergeArea.Columns.Count
+        arr3 = WorksheetFunction.Index(arr55, 0, arr100(toi + 1))
+
+        hangchu = hang
+        bay = senu
+
+        If senu = 1 Then
+            ActiveSheet.Cells(hang, ii).value = arr3(1)
+        Else
+            For senu = senu To 1 Step -1
+                ActiveSheet.Cells(hang, ii).value = arr3(shi, 1)
+                shi = shi + 1
+                hang = hang + ActiveSheet.Cells(hang, ii).MergeArea.Rows.Count
+            Next senu
+        End If
+
+        shi = 1
+        hang = hangchu
+        senu = bay
+        sht = sht - 1
+        ii = ii + huan
+    Next toi
+
+    ' 清除数组
+    Erase arr55
+    Erase arr66
+
+    Application.ScreenUpdating = True
+End Sub
+
+Function IsValidSelection(rng As Range) As Boolean
+    ' 判断选择区域的有效性
+    If rng.Columns.Count = 1 And rng.Rows.Count = 1 Then
+        IsValidSelection = False
+    ElseIf rng.Rows.Count = Application.Rows.Count Then
+        IsValidSelection = False
+    ElseIf rng.Columns.Count = Application.Columns.Count Then
+        IsValidSelection = False
+    ElseIf rng.Rows.Count > 1 And rng.Columns.Count > 1 Then
+        IsValidSelection = True
+    Else
+        IsValidSelection = True
+    End If
+End Function
+
+
+Sub 页面设置()
+'
+' 宏2 宏
+'
+
+'
+      snb = 1
+      
+      Do While snb <= Sheets.Count
+           
+      
+
+      
+
+
+Sheets(snb).Activate
+    Application.PrintCommunication = False
+
+
+    ActiveWindow.View = xlPageBreakPreview
+
+
+    With ActiveSheet.PageSetup
+
+
+
+
+
+        .CenterHorizontally = False
+        .CenterVertically = False
+
+
+
+        .LeftMargin = Application.InchesToPoints(0.4)
+        .RightMargin = Application.InchesToPoints(0.2)
+        .TopMargin = Application.InchesToPoints(0.78740157480315)
+        .BottomMargin = Application.InchesToPoints(0.393700787401575)
+        .HeaderMargin = Application.InchesToPoints(0.196850393700787)
+        .FooterMargin = Application.InchesToPoints(0.118110236220472)
+        
+        
+        
+        
+        
+        
+        
+
+
+
+
+
+        .OddAndEvenPagesHeaderFooter = False
+        .DifferentFirstPageHeaderFooter = False
+        .ScaleWithDocHeaderFooter = False
+        .AlignMarginsHeaderFooter = True
+  
+  
+
+  
+  
+  
+    End With
+          snb = snb + 1
+          Loop
+
+    Application.PrintCommunication = True
+
+End Sub
+
+Function lastRow(sh As Worksheet)
+    On Error Resume Next
+    lastRow = sh.Cells.Find(What:="*", _
+                            After:=sh.Range("A1"), _
+                            LookAt:=xlPart, _
+                            LookIn:=xlFormulas, _
+                            SearchOrder:=xlByRows, _
+                            SearchDirection:=xlPrevious, _
+                            MatchCase:=False).Row
+    On Error GoTo 0
+End Function
+
+
+Function LastCol(sh As Worksheet)
+    On Error Resume Next
+    LastCol = sh.Cells.Find(What:="*", _
+                            After:=sh.Range("A1"), _
+                            LookAt:=xlPart, _
+                            LookIn:=xlFormulas, _
+                            SearchOrder:=xlByColumns, _
+                            SearchDirection:=xlPrevious, _
+                            MatchCase:=False).Column
+    On Error GoTo 0
+End Function
+
+
+
+
+Sub 删除图片()
+'
+' 宏1 宏
+'
+On Error Resume Next
+'
+Application.ScreenUpdating = False
+For i = 1 To 500
+
+    ActiveSheet.Shapes.Range(Array("Arc " & i)).Delete
+    ActiveSheet.Shapes.Range(Array("Picture " & i)).Delete
+    ActiveSheet.Shapes.Range(Array("AutoShape " & i)).Select
+    ActiveSheet.Shapes.Range(Array("Group " & i)).Select
+    
+    Next i
+    
+    Application.ScreenUpdating = True
+End Sub
+Sub 全选图片()
+    ActiveSheet.DrawingObjects.Select
+End Sub
+Sub zldccmx() '删除当前工作簿中所有工作表中的Shapes
+    Set ash = ActiveSheet
+    Application.ScreenUpdating = False
+    For Each sh In ActiveWorkbook.Sheets
+        sh.Activate
+        sh.Shapes.SelectAll: Selection.Delete
+    Next
+    ash.Activate
+    Application.ScreenUpdating = True
+End Sub
+
+
+
+Sub 页眉页脚()
+On Error Resume Next
+Application.ScreenUpdating = False
+
+UserForm3.Show 0
+'If Not ActiveWorkbook.Sheets(1).Name = "COVER" Then
+'UserForm3.CommandButton4.Enabled = False
+'Else
+'If ActiveSheet.Index = 1 Then
+'UserForm3.CommandButton2.Enabled = False
+'End If
+'End If
+ID = ActiveSheet.Index
+
+ For Each sh In Worksheets    '数组
+sh.Select
+'If sh.Visible = 0 Then
+
+'MsgBox "发现隐藏工作表：" & sh.Name
+
+sh.Visible = 1
+
+'End If
+
+Next
+
+
+ActiveWorkbook.Sheets(ID).Select
+
+
+If InStr(ActiveSheet.Cells(33, 6).value, "212002897") > 0 Then
+Call 封页读取
+
+
+Else
+ With ActiveSheet.PageSetup
+    UserForm3.TextBox10.value = .LeftHeader
+    UserForm3.TextBox11.value = .CenterHeader
+    UserForm3.TextBox12.value = .RightHeader
+    UserForm3.TextBox13.value = .LeftFooter
+    UserForm3.TextBox14.value = .CenterFooter
+    UserForm3.TextBox15.value = .RightFooter
+End With
+End If
+
+
+
+
+
+Application.ScreenUpdating = True
+
+End Sub
+Sub 版次()
+    If InStr(ActiveSheet.Cells(28, 6), "B") > 0 Then
+        If InStr(ActiveSheet.Cells(29, 6), "版次") > 0 Then
+            ActiveSheet.Cells(28, 8).value = "供征求意见"
+        ElseIf InStr(ActiveSheet.Cells(29, 6), "REV") > 0 Then
+            ActiveSheet.Cells(28, 8).value = "ISSUED FOR COMMENTS"
+        End If
+    
+    ElseIf InStr(ActiveSheet.Cells(28, 6), "0") > 0 Then
+        If InStr(ActiveSheet.Cells(29, 6), "版次") > 0 Then
+            ActiveSheet.Cells(28, 8).value = "供批准"
+        ElseIf InStr(ActiveSheet.Cells(29, 6), "REV") > 0 Then
+            ActiveSheet.Cells(28, 8).value = "ISSUED FOR APPROVAL"
+        End If
+    End If
+If InStr(ActiveSheet.Cells(33, 6), "2002897") > 0 Then
+    ActiveSheet.Cells(33, 13).value = ActiveSheet.Cells(28, 6).value
+End If
+End Sub
+Sub 页眉页脚读取()
+On Error Resume Next
+
+If InStr(ActiveSheet.Cells(33, 6).value, "212002897") > 0 Then
+
+  Call 封页读取
+  With ActiveSheet.PageSetup
+.LeftHeader = ""
+.CenterHeader = ""
+.RightHeader = ""
+.LeftFooter = ""
+.CenterFooter = ""
+.RightFooter = ""
+End With
+
+Else
+ With ActiveSheet.PageSetup
+    UserForm3.TextBox10.value = .LeftHeader
+    UserForm3.TextBox11.value = .CenterHeader
+    UserForm3.TextBox12.value = .RightHeader
+    UserForm3.TextBox13.value = .LeftFooter
+    UserForm3.TextBox14.value = .CenterFooter
+    UserForm3.TextBox15.value = .RightFooter
+End With
+End If
+End Sub
+Sub 页眉页脚清空()
+On Error Resume Next
+
+ With ActiveSheet.PageSetup
+    UserForm3.TextBox10.value = ""
+    UserForm3.TextBox11.value = ""
+    UserForm3.TextBox12.value = ""
+    UserForm3.TextBox13.value = ""
+    UserForm3.TextBox14.value = ""
+    UserForm3.TextBox15.value = ""
+End With
+
+End Sub
+Sub 封页读取()
+'On Error Resume Next
+'CommandButton2.Enabled = False
+
+
+ With ActiveSheet.PageSetup
+    UserForm3.TextBox10.value = ActiveSheet.Cells(6, 6).value & ActiveSheet.Cells(7, 6).value
+    UserForm3.TextBox11.value = .CenterHeader
+    UserForm3.TextBox12.value = ActiveSheet.Cells(33, 9).value & " " & "REV" & ActiveSheet.Cells(33, 13).value
+    UserForm3.TextBox13.value = ActiveSheet.Cells(31, 8).value & " " & ActiveSheet.Cells(32, 8).value
+    UserForm3.TextBox14.value = .CenterFooter
+    UserForm3.TextBox15.value = "&P OF &N"
+
+End With
+
+
+End Sub
+
+
+Sub ff()
+  With ActiveSheet.PageSetup
+.LeftHeader = ""
+.CenterHeader = ""
+.RightHeader = ""
+.LeftFooter = ""
+.CenterFooter = ""
+.RightFooter = ""
+End With
+End Sub
+Sub 页眉页脚写入()
+On Error Resume Next
+
+'If ActiveWorkbook.Sheets(1).Name Like "*acro*" Then
+'ActiveWorkbook.Sheets(1).Visible = 1
+
+
+ 
+ 'MsgBox "存在隐藏工作表macro"
+ 'Exit Sub
+'End If
+       
+
+
+       
+       
+       
+       
+       Dim regx As Object
+Set regx = CreateObject("VBScript.Regexp")
+       
+       
+Dim sr
+        If UserForm3.Controls("checkbox" & 1) = True Then
+            n = 1
+            Else
+            n = 2
+        End If
+For i = n To ActiveWorkbook.Sheets.Count
+    With Sheets(i).PageSetup
+        .LeftHeader = UserForm3.TextBox10.value
+               att2 = Replace(UserForm3.TextBox10.value, Chr(10), "@")
+       clatt2 = Application.WorksheetFunction.Clean(att2)
+       fen = Split(clatt2, "@")
+       .LeftHeader = fen(0) & Chr(13) & fen(1)
+        .CenterHeader = UserForm3.TextBox11.value
+      ' If InStr(.RightHeader, Chr(10)) > 0 Then
+        
+        
+.RightHeader = UserForm3.TextBox12.value
+        
+        
+     
+        
+        If InStr(.RightHeader, REV) > 0 Then
+        
+       att = Replace(UserForm3.TextBox12.value, "REV", "@REV")
+       clatt = Application.WorksheetFunction.Clean(att)
+       fen = Split(clatt, "@")
+        .RightHeader = fen(0) & Chr(13) & fen(1)
+         UserForm3.TextBox12.value = .RightHeader
+        End If
+        .LeftFooter = UserForm3.TextBox13.value
+        .CenterFooter = UserForm3.TextBox14.value
+        .RightFooter = UserForm3.TextBox15.value
+    End With
+Next i
+
+If InStr(ActiveSheet.Cells(33, 6).value, "212002897") > 0 Then
+  With ActiveSheet.PageSetup
+.LeftHeader = ""
+.CenterHeader = ""
+.RightHeader = ""
+.LeftFooter = ""
+.CenterFooter = ""
+.RightFooter = ""
+End With
+
+End If
+
+
+End Sub
+Sub dsmch()
+Dim arr, arr2, brr, d, i&, s&, zf$
+Set d = CreateObject("scripting.dictionary")
+
+For ii = 13 To 27
+    Columns(ii).Clear
+    'Columns(ii).NumberFormatLocal = "@"
+Next ii
+lrow = ActiveSheet.UsedRange.Rows.Count
+lcol = ActiveSheet.UsedRange.Columns.Count
+arr = Range(Cells(1, 1), Cells(lrow, lcol))
+arr2 = Range(Cells(1, 1), Cells(lrow, lcol - 1))
+
+ReDim brr(1 To lrow, 1 To lcol)
+For i = 1 To lrow
+
+
+    zf = Join(Application.Index(arr2, i), ",")
+    
+    If Not d.Exists(zf) Then
+        s = s + 1
+        d(zf) = s
+        
+            For j = 1 To lcol
+              brr(s, j) = arr(i, j)
+            Next j
+    Else
+        n = d(zf)
+        brr(n, lcol) = brr(n, lcol) + arr(i, lcol)
+        
+    End If
+Next
+
+
+'brr(n, lcol) = ""
+'[h:l] = ""
+'[h1:l1] = Array("", "", "")
+Range("m2").Resize(s, lcol) = brr
+'Range("h1").CurrentRegion.Sort [h1], , , , , , , xlGuess
+End Sub
+Public Function PickFolder()
+     '** 使用FileDialog对象来选择文件夹
+        Dim fd As FileDialog
+        Dim strPath As String
+        Dim tmpstr As String
+        Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+        '** 显示选择文件夹对话框
+        If fd.Show = -1 Then        '** 用户选择了文件夹
+            strPath = fd.SelectedItems(1)
+        Else
+            strPath = ""
+        End If
+        Set fd = Nothing
+        PickFolder = strPath
+End Function
+Function DirFiles(ByVal mypath, Optional ByVal fileStr = "*.*")
+'返回一个数组2列 '1 列 -纯文件名+后缀 '2 列 -完整路径
+'3 列  纯文件名
+'4列  纯后缀
+'本函数默认不搜索 隐藏文件
+    If mypath Like "*\" Then '总是把传进来的路径处理成不带斜杠的数据
+        mypath = Left(mypath, Len(mypath) - 1) '去掉最后的分隔符
+    End If
+    Dim Dic
+    Set Dic = CreateObject("scripting.dictionary")
+    Dim fname, k
+    fname = Dir(mypath & "\" & fileStr)
+    k = 0
+    Do While fname <> "" '不为空的时候 往下循环
+        k = k + 1
+        If fname Like fileStr Then '实现模糊搜索文件
+        '这里可以自己定义搜索条件 暂时用like方法一般就是 *匹配模糊搜索
+             Dic(k) = fname '写入第一个文件
+        End If
+        fname = Dir
+    Loop
+    Dim brr
+    If Dic.Count = 0 Then
+        ReDim brr(0, 0)
+    Else
+        ReDim brr(1 To Dic.Count, 1 To 4) '1列纯文件名 2列完整文件名
+        For i = 1 To Dic.Count
+            brr(i, 1) = Dic(i) '纯文件名+后缀
+            brr(i, 2) = mypath & "\" & brr(i, 1)  '完整路径+文件名
+            brr(i, 3) = Left(brr(i, 1), InStrRev(brr(i, 1), ".") - 1) '不带后缀的文件名
+            brr(i, 4) = Mid(brr(i, 1), InStrRev(brr(i, 1), ".") + 1) '后缀
+        Next
+    End If
+    DirFiles = brr
+     '返回结果字典
+End Function
+Sub 选择文件夹()
+
+
+
+    arr77(1) = PickFolder
+    
+    
+    
+    Call 图纸目录
+End Sub
+Sub 刷新文件()
+    arr = DirFiles(arr77(1))
+    If UBound(arr) = 0 Then Exit Sub
+    ReDim brr(1 To UBound(arr), 1 To 2)
+    For i = 1 To UBound(arr)
+        brr(i, 1) = arr(i, 3) '不带后缀的文件名
+        brr(i, 2) = IIf(arr(i, 4) = "", "", "." & arr(i, 4)) '后缀 无后缀的不加点
+    Next
+    Range("A4").Resize(Cells(Rows.Count, 1).End(xlUp).Row, 2).ClearContents
+    Range("A4").Resize(UBound(arr), 2) = brr
+End Sub
+Sub 重命名()
+    n = E8_LastRow([A1])
+    For i = 4 To n
+        Name [B1&"\"] & Cells(i, 1) & Cells(i, 2) As [B1&"\"] & Cells(i, 3) & Cells(i, 2)
+    Next
+    MsgBox "命名完成!!"
+End Sub
+Public Function E8_LastRow(rng As Range) '返回rng所在列的最后行数
+    E8_LastRow = rng.Worksheet.Cells(Rows.Count, rng.Column).End(xlUp).Row
+End Function
+Sub 图纸目录()
+ Dim cc As String
+    arr = DirFiles(arr77(1))
+    If UBound(arr) = 0 Then Exit Sub
+    ReDim brr(1 To UBound(arr), 1 To 2)
+    For i = 1 To UBound(arr)
+        brr(i, 1) = arr(i, 3) '不带后缀的文件名
+        brr(i, 2) = IIf(arr(i, 4) = "", "", "." & arr(i, 4)) '后缀 无后缀的不加点
+    Next
+   ' Range("A4").Resize(Cells(Rows.Count, 1).End(xlUp).Row, 2).ClearContents
+   ' Range("A4").Resize(UBound(arr), 2) = brr
+   c = MsgBox("是否在当前单元格粘贴图纸目录", vbOKCancel)
+   If c = 2 Then
+   Exit Sub
+   Else
+    ActiveCell.Resize(UBound(arr), 1) = brr
+    End If
+End Sub
+
+
+
+Sub 循环切换大小写()
+    Dim cell As Range
+    Dim selectedRange As Range
+    Dim currentCase As Integer
+    
+    ' 获取所选区域
+    Set selectedRange = Selection
+    
+    ' 检查所选区域的第一个单元格，判断当前的大小写模式
+    If selectedRange.Cells(1, 1).value = UCase(selectedRange.Cells(1, 1).value) Then
+        currentCase = 1 ' 全部大写
+    ElseIf selectedRange.Cells(1, 1).value = LCase(selectedRange.Cells(1, 1).value) Then
+        currentCase = 2 ' 全部小写
+    Else
+        currentCase = 3 ' 所有单词首字母大写
+    End If
+    
+    ' 循环切换
+    For Each cell In selectedRange
+        Select Case currentCase
+            Case 1
+                ' 如果是全部大写，切换到全部小写
+                cell.value = LCase(cell.value)
+            Case 2
+                ' 如果是全部小写，切换到所有单词首字母大写
+                cell.value = WorksheetFunction.Proper(cell.value)
+            Case 3
+                ' 如果是所有单词首字母大写，切换到全部大写
+                cell.value = UCase(cell.value)
+        End Select
+    Next cell
+End Sub
+
+
+
