@@ -1,0 +1,152 @@
+Sub ClearAndCopyData()
+    Dim wsInput As Worksheet, wsSource As Worksheet
+    Dim arrInput As Variant, arrSourceN As Variant
+    Dim dictInput As Object, mapDict As Object, coeffDict As Object, coeffMapDict As Object
+    Dim inputRowDict As Object
+    Dim i As Long, j As Long, k As Long, col As Long
+    Dim inputVal As Variant, sourceVal As String
+    Dim writeIndex As Long, pasteRow As Long
+    Dim groupRows() As Variant
+    Dim multipliedValues() As Double
+    Dim factorN As Double
+    Dim inputRowList As Variant
+    Dim idxInInput As Long
+    Dim currentCoeff As Double
+    Dim lastRowB As Long, lastRowG As Long, lastClearRow As Long
+    Dim lastRowInput As Long
+    
+    Set wsInput = ThisWorkbook.Sheets("输入")
+    Set wsSource = ThisWorkbook.Sheets("源")
+    
+    Set dictInput = CreateObject("Scripting.Dictionary")
+    Set mapDict = CreateObject("Scripting.Dictionary")
+    Set coeffDict = CreateObject("Scripting.Dictionary")
+    Set coeffMapDict = CreateObject("Scripting.Dictionary")
+    Set inputRowDict = CreateObject("Scripting.Dictionary")
+    
+    ' ========== 清空旧数据区域 ==========
+    lastRowB = wsInput.Cells(wsInput.Rows.Count, "B").End(xlUp).Row
+    If lastRowB < 3 Then lastRowB = 3
+    
+    lastRowG = wsInput.Cells(wsInput.Rows.Count, "G").End(xlUp).Row
+    If lastRowG < 3 Then lastRowG = 3
+    
+    lastClearRow = Application.WorksheetFunction.Max(lastRowB, lastRowG)
+    wsInput.Range("B3:M" & lastClearRow).ClearContents
+    wsInput.Range("G3:G" & lastClearRow).ClearContents
+    
+    ' ========== 读取输入表数据 ==========
+    arrInput = wsInput.Range("O2:O100").Value
+    For i = 1 To UBound(arrInput, 1)
+        inputVal = Trim(arrInput(i, 1))
+        If Len(inputVal) > 0 Then
+            If Not dictInput.exists(inputVal) Then dictInput.Add inputVal, True
+            If Not inputRowDict.exists(inputVal) Then
+                inputRowDict.Add inputVal, CStr(i + 1)
+            Else
+                inputRowDict(inputVal) = inputRowDict(inputVal) & "," & CStr(i + 1)
+            End If
+        End If
+    Next i
+    
+    If dictInput.Count = 0 Then
+        MsgBox "输入表 O2:O100 中没有有效内容", vbExclamation
+        Exit Sub
+    End If
+    
+    ' ========== 定义映射关系 ==========
+    mapDict.Add "气动调节阀", Array("无缝钢管", "气源球阀")
+    mapDict.Add "气动开关阀", Array("无缝钢管", "气源球阀")
+    
+    ' ========== 定义主系数（不区分子类材料）==========
+    coeffDict.Add "气动调节阀", 1
+    coeffDict.Add "气动开关阀", 1
+    
+    ' ========== 定义类型+材料组合的独立系数 ==========
+    Dim tempDict As Object
+
+    Set tempDict = CreateObject("Scripting.Dictionary")
+    tempDict.Add "无缝钢管", 2
+    tempDict.Add "气源球阀", 2
+    coeffMapDict.Add "气动调节阀", tempDict
+
+    Set tempDict = CreateObject("Scripting.Dictionary")
+    tempDict.Add "无缝钢管", 1
+    tempDict.Add "气源球阀", 1
+    coeffMapDict.Add "气动开关阀", tempDict
+    
+    ' ========== 主循环 ==========
+    arrSourceN = wsSource.Range("N3:N100").Value
+
+    For Each inputVal In dictInput.Keys
+        Dim matchValues As Variant
+        If mapDict.exists(inputVal) Then
+            matchValues = mapDict(inputVal)
+        Else
+            matchValues = Array(inputVal)
+        End If
+        
+        inputRowList = Split(inputRowDict(inputVal), ",")
+        writeIndex = 0
+        ReDim groupRows(1 To 100, 1 To 12)
+        ReDim multipliedValues(1 To 100)
+        
+        For j = 1 To UBound(arrSourceN, 1)
+            sourceVal = Trim(arrSourceN(j, 1))
+            For k = LBound(matchValues) To UBound(matchValues)
+                If sourceVal = matchValues(k) Then
+                    Dim tempRow As Variant
+                    tempRow = wsSource.Range("B" & j + 2 & ":M" & j + 2).Value
+                    
+                    writeIndex = writeIndex + 1
+                    For col = 1 To 12
+                        groupRows(writeIndex, col) = tempRow(1, col)
+                    Next col
+                    
+                    Dim originalVal As Double
+                    originalVal = wsSource.Cells(j + 2, "G").Value
+                    
+                    ' 获取当前系数（优先从组合字典）
+                    If coeffMapDict.exists(inputVal) Then
+                        If coeffMapDict(inputVal).exists(sourceVal) Then
+                            currentCoeff = coeffMapDict(inputVal)(sourceVal)
+                        Else
+                            currentCoeff = 1
+                        End If
+                    ElseIf coeffDict.exists(inputVal) Then
+                        currentCoeff = coeffDict(inputVal)
+                    Else
+                        currentCoeff = 1
+                    End If
+                    
+                    idxInInput = Application.Min(writeIndex, UBound(inputRowList) + 1)
+                    factorN = wsInput.Cells(CLng(inputRowList(idxInInput - 1)), "P").Value
+                    
+                    multipliedValues(writeIndex) = originalVal * currentCoeff * factorN
+                    Exit For
+                End If
+            Next k
+        Next j
+        
+        If writeIndex > 0 Then
+            lastRowInput = wsInput.Cells(wsInput.Rows.Count, "B").End(xlUp).Row
+            If lastRowInput < 2 Then lastRowInput = 2
+            pasteRow = lastRowInput + 1
+            
+            wsInput.Range(wsInput.Cells(pasteRow, "B"), wsInput.Cells(pasteRow + writeIndex - 1, "M")).Value = _
+                Application.Index(groupRows, Evaluate("ROW(1:" & writeIndex & ")"), Evaluate("COLUMN(1:12)"))
+            
+            For i = 1 To writeIndex
+                wsInput.Cells(pasteRow + i - 1, "G").Value = multipliedValues(i)
+                idxInInput = Application.Min(i, UBound(inputRowList) + 1)
+                Dim sourceRow As Long
+                sourceRow = CLng(inputRowList(idxInInput - 1))
+                wsInput.Cells(pasteRow + i - 1, "A").Value = "来自 O" & sourceRow & ": " & wsInput.Cells(sourceRow, "O").Value
+            Next i
+        End If
+    Next inputVal
+    
+    MsgBox "数据清理并匹配复制完成！", vbInformation
+End Sub
+
+
